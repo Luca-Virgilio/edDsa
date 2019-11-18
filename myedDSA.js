@@ -1,5 +1,5 @@
+'use strict';
 const crypto = require('crypto');
-const BN = require('bn.js');
 const EdDSA = require('elliptic').eddsa;
 const utils = require('elliptic/lib/elliptic/utils');
 
@@ -19,102 +19,70 @@ function buf2hex(buffer) { // buffer is an ArrayBuffer
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 }
 
-
-//console.log(pk_point);
-// console.log(ed.curve);
-
-// console.log(a);
-// console.log(d.toString());
-// console.log(p.toString());
-
-//const point= ed.decodePoint(pk);
-
-//  console.log(point);
-// const newpk = ed.encodePoint(point);
-// console.log(buf2hex(newpk));
-
-
-// edDSA sign
-
-// step 1 H(seed)-->  32 byte|| 32 byte
-// .digest return a buffer
-const h = crypto.createHash('sha512').update(sk).digest();
-
-const hL = h.slice(0, 32);
-const prefix = h.slice(32, h.length);
-
-// step2 H(prefix || M)
-const bufferMsg = Buffer.from(message, 'ascii');
-//console.log(new Uint16Array(bufferMsg));
-const bufferA = Buffer.concat([prefix, bufferMsg], prefix.length + bufferMsg.length);
-
-const r = crypto.createHash('sha512').update(bufferA).digest()
-// console.log(r);
-
-// // interpreting the buffer in little endian 
-// const r_number = new BN (r,'le');
-// console.log("r_number", r_number);
-
-//console.log("r_test", r_test);
-// correct r <BN: c2121f877e155f9992a673040859890bd4d6fa76e81a6d33032e48f5f268a42>
-
-
-
-// const R_point = ed.g.mul(r_number);
-// const R = ed.encodePoint(R_point);
-
-
-// const a = new BN('a',16);
-// const b = new BN (7,10);
-// a.iadd(b);
-// console.log(a.toString());
+const sha256BILE = message => {
+    try {
+        const hashBuffer = crypto.createHash('sha512').update(message).digest();
+        const hashBI = utils.intFromLE(hashBuffer).umod(ed.curve.n);
+        return hashBI;
+    } catch(error) {
+        console.log(error);
+    }
+}
 
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
 
 // Buffer.from is necessary ?!?!?!?!?
 
-const sign_edDSA = (message, sk) => {
+const sign_edDSA = (msg, sk) => {
+    try {
     // step1: create key
-    const key = ed.keyFromSecret(sk);
+    const key = ed.keyFromSecret(sk.toString('hex'));
 
     // step2: H(prefix || M)
-    const bufferMsg = Buffer.from(message, 'ascii');
-    const msg = utils.parseBytes(bufferMsg);
-    const r_test = ed.hashInt(key.messagePrefix(), msg);
-
+    const prefix = Buffer.from(key.messagePrefix());
+    const r = sha256BILE(Buffer.concat([prefix, msg]));
     // step3:  R= [r]G 
-    const R = ed.g.mul(r_test);
+    const R = ed.g.mul(r);
     // convert point to value
-    var Rencoded = ed.encodePoint(R);
+    const Rencode = ed.encodePoint(R);
 
     // step4: k = H(R || A || m)
-    const s_ = ed.hashInt(Rencoded, key.pubBytes(), msg);
-    // step5:  S = (r + s*k) mod L
-    const S = r_test.add(s_.mul(key.priv())).umod(ed.curve.n);
+    //const s_ = ed.hashInt(Rencoded, key.pubBytes(), msg);
+    //const pub = new Uint8Array(key.pubBytes());
+    const pub = key.getPublic();
+    const A = Buffer.from(key.getPublic());
+    const k = sha256BILE(Buffer.concat([Buffer.from(Rencode), A, msg]));
 
-    return ed.makeSignature({ R: R, S: S, Rencode: Rencoded });
+    // step5:  S = (r + s*sk) mod L
+    const S = r.add(k.mul(key.priv())).umod(ed.curve.n);
 
+    const res = ed.makeSignature({ R, S, Rencode });
+    return res;
+    } catch(error) {
+        console.log(error);
+    }
 }
 
-const verify_edDSA = (message, sign, pk) => {
-
+const verify_edDSA = (msg, sign, pk) => {
+    try {
     // step 1: obtain R, A, M
-    const bMsg = Buffer.from(message, 'ascii');
-    const msg = utils.parseBytes(bMsg);
 
     const sig = ed.makeSignature(sign);
-    const key = ed.keyFromPublic(pk);
+    const key = ed.keyFromPublic(pk.toString('hex'));
 
-    const R_value = sig.Rencoded();
-    const A_value = key.pubBytes();
+    const R = sig.Rencoded();
+    const A = key.pubBytes();
     //step 2: H(R || A || M)
-    const k = ed.hashInt(R_value, A_value, msg);
+    //const k = ed.hashInt(R_value, A_value, msg);
+    const k = sha256BILE(Buffer.concat([Buffer.from(R), Buffer.from(A), msg]));
     // step 3: SG = R + k[A]
     const SG = ed.g.mul(sig.S());
     const R_plus_kA = sig.R().add(key.pub().mul(k));
 
     return R_plus_kA.eq(SG);
-
+    } catch(error) {
+        console.log(error);
+    }
 }
 
 
