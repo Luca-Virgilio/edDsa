@@ -9,7 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "elliptic": "^6.5.1",
+    "elliptic": "^6.5.3",
     "nacl-signature": "^2.0.1"
   }
 }
